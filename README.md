@@ -1,2 +1,5 @@
 # brush_scripts
-ファイアアルパカ用のブラシスクリプト置き場
+
+This is a repository of brush script for FireAlpaca.
+
+ファイアアルパカ用のブラシスクリプト置き場です。
