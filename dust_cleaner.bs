@@ -1,0 +1,222 @@
+bs_setmode(1)  -- 描画色で描画
+
+function default_size()
+  return 15, 1.0
+end
+
+-- ## ブラシ設定パラメータ(FireAlpaca ブラシ設定画面の表示項目)
+function  param1()
+  -- 説明書き
+  return  "■ブラシスクリプト「ダストクリーナー」<br>ブラシサイズの範囲でゴミを除去したり塗り残しを削除します(透明ピクセルの有無で判定します)。<br>＜注意事項＞<br>・<font color='#F00'>動作が重くなるため、ブラシサイズは小さめ(推奨：20以下)に設定してください。</font><br>・カラー/8bitレイヤーでのゴミ取りは描画色を透明色に設定して使用ください。<br>・塗り残し削除モードの検出対象は1レイヤーのみです(レイヤー結合後の使用を想定)。<br>※本説明のチェックボックスは使用されません。" , 0 , 0 , 0
+end
+
+function  param2()
+  -- 0: OFF / 1: ON
+  return  "クリーニングモード (OFF: ゴミ取り / ON: 塗り残し削除)" , 0 , 1 , 0
+end
+
+--[[ ユーザ向けにコメントアウト
+function  param3()
+  -- 0: OFF / 1: ON
+  return  "隣接ピクセル検出モード (OFF: 4方向 / ON: 8方向)" , 0 , 1 , 0
+end
+
+function  param4()
+  -- 0: OFF / 1: ON
+  return  "デバッグモード (検出範囲確認用(カラーレイヤー専用))" , 0 , 1 , 0
+end
+]]
+
+-- ## ピクセル位置情報
+Dot={}
+Dot.new = function(x,y)
+  local obj = {}
+  obj.x = x
+  obj.y = y
+  return obj
+end
+
+-- ## ダスト情報
+Dust={}
+Dust.new = function()
+  local obj = {}
+  obj.dots = {}
+  return obj
+end
+
+-- ## クリック終了時の動作
+function  last( x, y, p )
+  return main( x, y, p )
+end
+
+-- ## クリック中の動作
+function  main( x, y, p )
+
+  if bs_preview() then
+    return 0
+  end
+
+  -- ## 変数定義
+  local del_mode = bs_param2()
+  local mode = 0
+  local debug_mode = 0
+
+--[[ ユーザ向けにコメントアウト
+  local mode = bs_param3()
+  local debug_mode = bs_param4()
+]]
+
+  local range = math.floor(bs_width_max())  -- 筆圧最大時のサイズ
+  local x_b1 = math.floor(x-range/2)
+  local x_b2 = math.floor(x+range/2)
+  local y_b1 = math.floor(y-range/2)
+  local y_b2 = math.floor(y+range/2)
+  local dust_list = {}
+
+  -- ## ダストリスト作成
+  for i = y_b1, y_b2 do
+    for j = x_b1, x_b2 do
+      if ( (del_mode == 0 and bs_pixel_get_alpha(j, i) ~= 0) or (del_mode == 1 and bs_pixel_get_alpha(j, i) == 0)) then
+        local is_new = true
+        for k = 1, #dust_list do
+          local dust = dust_list[k]
+          for l = 1, #(dust.dots) do
+            local dot = dust.dots[l]
+            if mode == 1 then
+              if (((dot.y == i-1 and (dot.x == j-1 or dot.x == j or dot.x == j+1)) or (dot.y == i and dot.x == j-1))) then
+                is_new = false
+                dust_list[k].dots[#(dust.dots)+1] = Dot.new(j, i)
+                break
+              end
+            else
+              if ((dot.y == i-1 and dot.x == j) or (dot.y == i and dot.x == j-1)) then
+                is_new = false
+                dust_list[k].dots[#(dust.dots)+1] = Dot.new(j, i)
+                break
+              end
+            end
+          end
+          if not is_new then
+            break
+          end
+        end
+        if is_new then
+          local dust = Dust.new()
+          dust.dots[1] = Dot.new(j, i)
+          dust_list[#dust_list+1] = dust
+        end
+      end
+    end
+  end
+
+  -- ## クリーニング領域表示
+  if debug_mode == 1 then
+    for i = y_b1, y_b2 do
+      bs_pixel_set(x_b1-1, i, 0, 255, 0, 255)
+      bs_pixel_set(x_b2+1, i, 0, 255, 0, 255)
+    end
+    for j = x_b1, x_b2 do
+      bs_pixel_set(j, y_b1-1, 0, 255, 0, 255)
+      bs_pixel_set(j, y_b2+1, 0, 255, 0, 255)
+    end
+  end
+
+  -- ## ダストリストマージ
+  local dust_list_tmp = {}
+  for k = 1, #dust_list do
+    local is_next = false
+    for m = 1, #dust_list_tmp do
+      for o = 1, #(dust_list_tmp[m].dots) do
+        for l = 1, #(dust_list[k].dots) do
+          local a = dust_list_tmp[m].dots[o]
+          local b = dust_list[k].dots[l]
+          is_next = (is_next or (b.x == a.x-1 and b.y == a.y-1 and mode == 1))
+          is_next = (is_next or (b.x == a.x and b.y == a.y-1))
+          is_next = (is_next or (b.x == a.x+1 and b.y == a.y -1 and mode == 1))
+          is_next = (is_next or (b.x == a.x-1 and b.y == a.y))
+          is_next = (is_next or (b.x == a.x+1 and b.y == a.y))
+          is_next = (is_next or (b.x == a.x-1 and b.y == a.y+1 and mode == 1))
+          is_next = (is_next or (b.x == a.x and b.y == a.y-1))
+          is_next = (is_next or (b.x == a.x+1 and b.y == a.y+1 and mode == 1))
+          if is_next then
+            break
+          end
+        end
+        if is_next then
+          break
+        end
+      end
+      if is_next then
+        for l = 1, #(dust_list[k].dots) do
+          dust_list_tmp[m].dots[#(dust_list_tmp[m].dots)+1] = dust_list[k].dots[l]
+        end
+        break
+      end
+    end
+    if not is_next then
+      dust_list_tmp[#dust_list_tmp + 1] = dust_list[k]
+    end
+  end
+  dust_list = dust_list_tmp
+
+  -- ## ダスト検出数表示
+  if debug_mode == 1 then
+    for k = 1, #dust_list do
+      local dust = dust_list[k]
+      for l = 1, #(dust.dots) do
+        bs_pixel_set(x_b2+2+k, y_b1+l, 0, 0, 255, 255)
+      end
+    end
+  end
+
+  -- ## ダスト削除
+  for k = 1, #dust_list do
+    local dust = dust_list[k]
+    local is_isolate = true
+    for l = 1, #(dust.dots) do
+      local dot = dust.dots[l]
+      for i = y_b1, y_b2 do
+        if (dot.y == i and (dot.x == x_b1 or dot.x == x_b2)) then
+          is_isolate = false
+          break
+        end
+      end
+      if not is_isolate then
+        break
+      end
+      for j = x_b1, x_b2 do
+        if (dot.x == j and (dot.y == y_b1 or dot.y == y_b2)) then
+          is_isolate = false
+          break
+        end
+      end
+      if not is_isolate then
+        break
+      end
+    end
+    if is_isolate then
+      for l = 1, #(dust.dots) do
+        local dot = dust.dots[l]
+        local dist = (dot.x - x)*(dot.x - x) + (dot.y - y)*(dot.y - y)
+        if dist <= (range/2)*(range/2)*1.1 then
+          if del_mode == 0 then
+            -- ## ゴミ取り
+            bs_pixel_set(dot.x, dot.y, 255, 255, 255, 255)  -- TODO: for color layer
+          else
+            -- ## 塗り残し削除
+            r,g,b = bs_fore()
+            bs_pixel_set(dot.x, dot.y, r, g, b, 255)
+          end
+
+          -- ## 削除ピクセルおよび削除ピクセル数表示
+          if debug_mode == 1 then
+            bs_pixel_set(dot.x, dot.y, 255, 0, 0, 255)
+            bs_pixel_set(x_b2+2+k, y_b1+l, 255, 0, 0, 255)
+          end
+        end
+      end
+    end
+  end
+
+  return 1
+end
